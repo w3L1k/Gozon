@@ -5,6 +5,8 @@ namespace OrdersService.Data;
 
 public sealed class OrdersDbContext : DbContext
 {
+    public DbSet<InboxMessage> Inbox => Set<InboxMessage>();
+
     public OrdersDbContext(DbContextOptions<OrdersDbContext> options) : base(options) { }
 
     public DbSet<Order> Orders => Set<Order>();
@@ -33,5 +35,6 @@ public sealed class OrdersDbContext : DbContext
         modelBuilder.Entity<OutboxMessage>()
             .Property(x => x.PayloadJson)
             .IsRequired();
+        modelBuilder.Entity<InboxMessage>().HasKey(x => x.Id);
     }
 }

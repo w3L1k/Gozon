@@ -1,0 +1,206 @@
+﻿<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>GoZon – проверка заказа/платежа</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+            margin: 24px;
+        }
+
+        .row {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 14px;
+            min-width: 320px;
+            flex: 1;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            color: #444;
+            margin-top: 10px;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            margin-top: 4px;
+        }
+
+        button {
+            padding: 10px 12px;
+            margin-top: 12px;
+            cursor: pointer;
+        }
+
+        pre {
+            background: #0b1020;
+            color: #cfe3ff;
+            padding: 12px;
+            border-radius: 10px;
+            overflow: auto;
+        }
+
+        .muted {
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h2>GoZon: проверка бизнес-логики (orders → payments)</h2>
+    <div class="muted">
+        API через Nginx proxy: <code>/api</code>
+    </div>
+
+    <div class="row" style="margin-top:16px;">
+        <div class="card">
+            <h3>1) Создать заказ</h3>
+
+            <label>UserId</label>
+            <input id="userId" value="u1" />
+
+            <label>Amount</label>
+            <input id="amount" type="number" value="150" />
+
+            <label>Description</label>
+            <input id="desc" value="test order" />
+
+            <button id="btnCreate">POST /api/orders</button>
+            <div class="muted" style="margin-top:10px;">
+                После создания появится orderId, можно включить автопроверку статуса.
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>2) Найти/проверить заказ</h3>
+
+            <label>OrderId</label>
+            <input id="orderId" placeholder="вставь id заказа" />
+
+            <button id="btnGet">GET /api/orders/{id}</button>
+
+            <label style="margin-top:14px;">
+                <input type="checkbox" id="poll" />
+                Авто-проверка статуса (каждые 2 сек)
+            </label>
+            <div class="muted">Остановится, когда статус станет финальным.</div>
+        </div>
+
+        <div class="card">
+            <h3>3) Список заказов</h3>
+            <button id="btnList">GET /api/orders</button>
+            <div class="muted">Если у тебя другой путь — скажи, поправим.</div>
+        </div>
+    </div>
+
+    <h3 style="margin-top:18px;">Вывод</h3>
+    <pre id="out">{}</pre>
+
+    <script>
+        const out = document.getElementById('out');
+        const userId = document.getElementById('userId');
+        const amount = document.getElementById('amount');
+        const desc = document.getElementById('desc');
+        const orderId = document.getElementById('orderId');
+        const poll = document.getElementById('poll');
+
+        function setOut(obj) {
+            out.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+        }
+
+        async function req(method, url, body) {
+            const opts = { method, headers: {} };
+            if (body !== undefined) {
+                opts.headers['Content-Type'] = 'application/json';
+                opts.body = JSON.stringify(body);
+            }
+            const r = await fetch(url, opts);
+            const text = await r.text();
+            let json;
+            try { json = text ? JSON.parse(text) : null; } catch { json = text; }
+            if (!r.ok) throw { status: r.status, body: json };
+            return json;
+        }
+
+        function guessId(obj) {
+            if (!obj || typeof obj !== 'object') return null;
+            return obj.id || obj.orderId || obj.OrderId || obj.Id || null;
+        }
+
+        function isFinalStatus(s) {
+            if (!s) return false;
+            const x = String(s).toLowerCase();
+            return x.includes('paid') || x.includes('finished') || x.includes('completed') ||
+                x.includes('cancel') || x.includes('fail') || x.includes('rejected');
+        }
+
+        let pollTimer = null;
+
+        async function getOrderOnce() {
+            const id = orderId.value.trim();
+            if (!id) { setOut('Нужен orderId'); return; }
+            const data = await req('GET', `/api/orders/${encodeURIComponent(id)}`);
+            setOut(data);
+
+            const status = data.status ?? data.Status ?? data.orderStatus ?? data.OrderStatus;
+            if (status !== undefined) {
+                const final = isFinalStatus(status);
+                out.textContent += `\n\nstatus=${status} (${final ? 'финальный' : 'не финальный'})`;
+                if (final && poll.checked) poll.checked = false;
+            }
+        }
+
+        document.getElementById('btnCreate').addEventListener('click', async () => {
+            try {
+                const body = {
+                    userId: userId.value.trim(),
+                    amount: Number(amount.value),
+                    description: desc.value.trim()
+                };
+                const data = await req('POST', '/api/orders', body);
+                setOut(data);
+
+                const id = guessId(data);
+                if (id) orderId.value = id;
+            } catch (e) {
+                setOut(e);
+            }
+        });
+
+        document.getElementById('btnGet').addEventListener('click', async () => {
+            try { await getOrderOnce(); } catch (e) { setOut(e); }
+        });
+
+        document.getElementById('btnList').addEventListener('click', async () => {
+            try {
+                const data = await req('GET', '/api/orders');
+                setOut(data);
+            } catch (e) {
+                setOut({ error: 'Не смог получить список заказов', details: e });
+            }
+        });
+
+        poll.addEventListener('change', async () => {
+            if (poll.checked) {
+                if (pollTimer) clearInterval(pollTimer);
+                pollTimer = setInterval(() => getOrderOnce().catch(setOut), 2000);
+                getOrderOnce().catch(setOut);
+            } else {
+                if (pollTimer) clearInterval(pollTimer);
+                pollTimer = null;
+            }
+        });
+    </script>
+</body>
+</html>

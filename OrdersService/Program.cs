@@ -16,6 +16,7 @@ builder.Services.AddDbContext<OrdersDbContext>(opt =>
 
 builder.Services.AddSingleton<RabbitMqPublisher>();
 builder.Services.AddHostedService<OutboxWorker>();
+builder.Services.AddHostedService<PaymentResultConsumer>();
 
 var app = builder.Build();
 
