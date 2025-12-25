@@ -1,0 +1,65 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: gozon-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  orders:
+    build:
+      context: ..
+      dockerfile: OrdersService/Dockerfile
+    container_name: gozon-orders
+    depends_on:
+      - rabbitmq
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Port: "5672"
+      RabbitMq__User: guest
+      RabbitMq__Pass: guest
+      ConnectionStrings__Db: "Data Source=/data/orders.db"
+    volumes:
+      - orders_data:/data
+    ports:
+      - "8081:8080"
+
+  payments:
+    build:
+      context: ..
+      dockerfile: PaymentsService/Dockerfile
+    container_name: gozon-payments
+    depends_on:
+      - rabbitmq
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Port: "5672"
+      RabbitMq__User: guest
+      RabbitMq__Pass: guest
+      ConnectionStrings__Db: "Data Source=/data/payments.db"
+    volumes:
+      - payments_data:/data
+    ports:
+      - "8082:8080"
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: Gateway/Dockerfile
+    container_name: gozon-gateway
+    depends_on:
+      - orders
+      - payments
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+    ports:
+      - "8080:8080"
+
+volumes:
+  orders_data:
+  payments_data:
